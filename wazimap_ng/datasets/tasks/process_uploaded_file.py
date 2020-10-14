@@ -25,7 +25,7 @@ def process_uploaded_file(dataset_file, dataset, **kwargs):
     Get header index for geography & count and create Result objects.
     """
     def process_file_data(df, dataset, row_number):
-        df = df.applymap(lambda s:s.capitalize().strip() if type(s) == str else s)
+        df = df.applymap(lambda s: s.strip().capitalize() if type(s) == str else s)
         datasource = (dict(d[1]) for d in df.iterrows())
         return loaddata(dataset, datasource, row_number)
 
@@ -33,7 +33,7 @@ def process_uploaded_file(dataset_file, dataset, **kwargs):
     chunksize = getattr(settings, "CHUNK_SIZE_LIMIT", 1000000)
     logger.debug(f"Processing: {filename}")
 
-    columns = None
+    new_columns = None
     error_logs = []
     warning_logs = []
     row_number = 1
@@ -41,12 +41,19 @@ def process_uploaded_file(dataset_file, dataset, **kwargs):
     if ".csv" in filename:
         logger.debug(f"Processing as csv")
         df = pd.read_csv(dataset_file.document.open(), nrows=1, dtype=str, sep=",")
-        df.dropna(how='all', axis='columns', inplace=True)
-        columns = df.columns.str.lower()
+        old_columns = df.columns.str.lower().str.strip()
+        df.drop(df.columns[df.columns.str.contains('unnamed',case = False)],axis = 1, inplace = True)
+        new_columns = df.columns.str.lower().str.strip()
 
-        for df in pd.read_csv(dataset_file.document.open(), chunksize=chunksize, dtype=str, sep=",", header=None, skiprows=1):
-            df.dropna(how='all', axis='columns', inplace=True)
-            df.columns = columns
+        for df in pd.read_csv(
+            dataset_file.document.open(), chunksize=chunksize, dtype=str,
+            sep=",", header=None, skiprows=1
+        ):
+            df.dropna(how='all', axis='index', inplace=True)
+            df.columns = old_columns
+            df = df.loc[:, new_columns]
+
+            df.fillna('', inplace=True)
             errors, warnings = process_file_data(df, dataset, row_number)
             error_logs = error_logs + errors
             warning_logs = warning_logs + warnings
@@ -56,28 +63,32 @@ def process_uploaded_file(dataset_file, dataset, **kwargs):
         skiprows = 1
         i_chunk = 0
         df = pd.read_excel(dataset_file.document.open(), nrows=1, dtype=str)
-        df.dropna(how='any', axis='columns', inplace=True)
-        columns = df.columns.str.lower()
+        old_columns = df.columns.str.lower().str.strip()
+        df.drop(df.columns[df.columns.str.contains('unnamed',case = False)],axis = 1, inplace = True)
+        new_columns = df.columns.str.lower().str.strip()
         while True:
             df = pd.read_excel(
-                dataset_file.document.open(), nrows=chunksize, skiprows=skiprows, header=None
+                dataset_file.document.open(), nrows=chunksize, skiprows=skiprows, header=None,
+                dtype=str
             )
             skiprows += chunksize
             # When there is no data, we know we can break out of the loop.
             if not df.shape[0]:
                 break
             else:
-                df.dropna(how='any', axis='columns', inplace=True)
-                df.columns = columns
+                df.dropna(how='all', axis='index', inplace=True)
+                df.columns = old_columns
+                df = df.loc[:, new_columns]
+                df.fillna('', inplace=True)
                 errors, warnings = process_file_data(df, dataset, row_number)
                 error_logs = error_logs + errors
                 warning_logs = warning_logs + warnings
                 row_number = row_number + chunksize
             i_chunk += 1
 
-    groups = [group for group in columns.to_list() if group not in ["geography", "count"]]
+    groups = [group for group in new_columns.to_list() if group not in ["geography", "count"]]
 
-    dataset.groups =  list(set(groups + dataset.groups))
+    dataset.groups = list(set(groups + dataset.groups))
     dataset.save()
 
     if error_logs:
@@ -96,7 +107,7 @@ def process_uploaded_file(dataset_file, dataset, **kwargs):
             os.makedirs(logdir)
         logfile = logdir + "%s_%d_warnings.csv" % (dataset.name.replace(" ", "_"), dataset.id)
         df = pd.DataFrame(warning_logs)
-        df.to_csv(logfile, header=columns, index=False)
+        df.to_csv(logfile, header=new_columns, index=False)
         warning_logs = logfile
 
     return {

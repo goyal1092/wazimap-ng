@@ -56,3 +56,7 @@ class GroupFactory(factory.django.DjangoModelFactory):
 
     dataset = factory.SubFactory(DatasetFactory)
 
+
+class DatasetFileFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = models.DatasetFile
