@@ -2,21 +2,30 @@ from wazimap_ng.datasets.models import IndicatorData
 
 from .helpers import MetricCalculator
 
-def get_indicator_data(highlight, geographies):
+def get_indicator_data(highlight, geographies, fetch_first=False):
     indicator_data = IndicatorData.objects.filter(indicator__profilehighlight=highlight, geography__in=geographies)
+
+    if fetch_first and indicator_data:
+        return indicator_data.first()
+
     return indicator_data
 
 def absolute_value(highlight, geography):
-    data = get_indicator_data(highlight, [geography]).first().data
-    return MetricCalculator.absolute_value(data, highlight, geography)
+    data = get_indicator_data(highlight, [geography], True)
+    if not data:
+        return None
+    return MetricCalculator.absolute_value(data.data, highlight, geography)
+
 
 def subindicator(highlight, geography):
-    data = get_indicator_data(highlight, [geography]).first().data
-    return MetricCalculator.subindicator(data, highlight, geography)
+    data = get_indicator_data(highlight, [geography], True)
+    if not data:
+        return None
+    return MetricCalculator.subindicator(data.data, highlight, geography)
 
 
 def sibling(highlight, geography):
-    siblings = geography.get_siblings()
+    siblings = list(geography.get_siblings())
     data = get_indicator_data(highlight, [geography] + siblings)
     return MetricCalculator.sibling(data, highlight, geography)
 
